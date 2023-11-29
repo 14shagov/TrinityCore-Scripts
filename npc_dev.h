@@ -1,7 +1,6 @@
 #pragma once
 #ifndef NPC_DEV_H
 #define NPC_DEV_H
-
 #include "Player.h"
 #include "Define.h"
 
@@ -56,7 +55,6 @@ enum CustomGossipSender
 enum CustomGossipMenu
 {
     TRAINER_BOX = 60000,
-
     GOSSIP_OPTION_1 = 0,
     GOSSIP_OPTION_2 = 1,
     GOSSIP_OPTION_3 = 2,
