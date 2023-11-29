@@ -10,7 +10,6 @@
 #include "Item.h"
 #include "ObjectMgr.h"
 #include "SpellMgr.h"
-#include "world_chat.h"
 #include "SmartEnum.h"
 
 
