@@ -13,15 +13,12 @@
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 
-
 /*std::list<Player*> players;
 Trinity::UnitAuraCheck check(false, 29726);
 Trinity::PlayerListSearcher<Trinity::UnitAuraCheck> searcher(me, players, check);
 Cell::VisitWorldObjects(me, searcher, 10.0f);
 if (!players.empty())ChatHandler(players.front()->GetSession()).PSendSysMessage("spell %i", DoCast(me, 34812, false));//xdebug
 */
-
-//todo check command .npc set
 
 enum UniqueGossipOptions : uint32
 {
@@ -129,12 +126,6 @@ public:
         npc_uniqueAI(Creature* creature) : BossAI(creature, 1)
         {
             Initialize();
-            /*WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_UPD_CREATURE_SPAWN_TIME_SECS);
-            stmt->setUInt32(0, spawnTime);
-            stmt->setUInt32(1, creature->GetSpawnId());
-            WorldDatabase.Execute(stmt);*/ //Update in DB (cs_nps.cpp)
-            /*if (CreatureTemplate const* cinfo = creature->GetCreatureTemplate())
-                const_cast<CreatureTemplate*>(cinfo)->faction = factionId;*/ //Update in memory (cs_nps.cpp)
         }
 
         //!is used to initialize variables when creating a creature
@@ -162,16 +153,17 @@ public:
             if (spellInfo->Id == SPELL_CURSE_OF_NAZJATAR ||
                 spellInfo->Id == SPELL_CURSE_PAIN ||
                 spellInfo->Id == SPELL_CURSE_OF_MENDING)
-                return;
-            if (spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_NAZJATAR))
-                && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_PAIN))
-                && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_MENDING)))
             {
-                me->RemoveAura(SPELL_CURSE_OF_NAZJATAR);
-                me->RemoveAura(SPELL_CURSE_PAIN);
-                me->RemoveAura(SPELL_CURSE_OF_MENDING);
-                _IsCursesBroken = true;
+                me->ApplySpellImmune(SPELL_CURSE_OF_NAZJATAR, 0, 162, true);
+                me->ApplySpellImmune(SPELL_CURSE_PAIN, 0, 162, true);
+                me->ApplySpellImmune(SPELL_CURSE_OF_MENDING, 0, 162, true);
+                return;
             }
+            if (me->GetFaction() == FACTION_FRIENDLY)
+                if (spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_NAZJATAR))
+                    && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_PAIN))
+                    && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_MENDING)))
+                    _IsCursesBroken = true;
 
             _events.ScheduleEvent(EVENT_INNER_FIRE, 1s);
         }
@@ -200,14 +192,6 @@ public:
                 DoCastSelf(SPELL_PRIEST_GUARDIAN_SPIRIT_HEAL, me);
             }
             ChatHandler(player->GetSession()).PSendSysMessage("20719");//xdebug
-        }
-
-        
-        //!CreatureAI.h
-        void JustEnteredCombat(Unit* who) override
-        {
-            //me->SetStandState(UNIT_STAND_STATE_STAND);
-            //me->CastSpell(who, SPELL_POWER_WORLD_FORTITUDE, true);
         }
 
         //!CreatureAI.h
@@ -256,13 +240,6 @@ public:
             }*/
         }
 
-        //!CreatureAI.h
-        void KilledUnit(Unit* victim)
-        {
-            /*_UpdatePowerStats();
-            me->GetHealthGain(3);*/
-        }
-
         //!ScriptedCreature.h
         void DoAction(int32 actionId) override
         {
@@ -298,37 +275,11 @@ public:
             }
         }
 
-        //!UnitAI.h
-        void JustExitedCombat() override
-        {
-        }
-
         //!CreatureAI.h
         void JustReachedHome()
         {
             //me->SetStandState(UNIT_STAND_STATE_SLEEP);
             me->SetHealth(me->GetMaxHealth());
-        }
-
-        //!CreatureAI.h
-        void IsSummonedBy(WorldObject* summoner) override
-        {
-            //xexample
-            /*if (summoner->GetTypeId() == TYPEID_PLAYER)
-            {
-                summonerGUID = summoner->GetGUID();
-            }*/
-            //todo own spell to summoning
-        }
-
-        //!CreatureAI.h
-        void MovementInform(uint32 /*type*/, uint32 id) override
-        {
-            //xexample
-            /*if (id == MOVEID_CHASE)
-                _nextAction = EVENT_DO_JUMP;
-            else if (id == MOVEID_JUMP)
-                _nextAction = EVENT_DO_FACING;*/
         }
 
         //!CreatureAI.h
@@ -385,12 +336,11 @@ public:
                 me->SetFaction(FACTION_SUPER_ENEMY);
                 break;
             case GOSSIP_ACTION_INFO_DEF + 7:
-                SendGossipMenuFor(player, NPC_TEXT_UNIQUE_4, me->GetGUID());
-                ChatHandler(player->GetSession()).PSendSysMessage("Team %u", player->GetTeam());//xdebug
+                DoAction(ACTION_BUFF_YELL);
                 player->AddItem(ITEM_PROTO_DRAKE_REINS, 1);
+                SendGossipMenuFor(player, NPC_TEXT_UNIQUE_4, me->GetGUID());
                 break;
             }
-
             return true;
         }
 
@@ -450,7 +400,6 @@ public:
         TaskScheduler _scheduler;
         EventMap _events;
         ObjectGuid _WaterElementalGUID;
-        ObjectGuidMap _WaterElementalGUIDMap;
         bool _HasCastIceblock;
         bool _IsCursesBroken;
         //inline static uint8 q = 0;
