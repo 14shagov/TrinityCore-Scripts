@@ -12,6 +12,7 @@
 #include "ScriptedGossip.h"
 #include "SpellAuras.h"
 #include "SpellMgr.h"
+#include "GridNotifiersImpl.h"
 
 /*std::list<Player*> players;
 Trinity::UnitAuraCheck check(false, 29726);
@@ -19,6 +20,15 @@ Trinity::PlayerListSearcher<Trinity::UnitAuraCheck> searcher(me, players, check)
 Cell::VisitWorldObjects(me, searcher, 10.0f);
 if (!players.empty())ChatHandler(players.front()->GetSession()).PSendSysMessage("spell %i", DoCast(me, 34812, false));//xdebug
 */
+
+/*WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_UPD_CREATURE_SPAWN_TIME_SECS);
+            stmt->setUInt32(0, spawnTime);
+            stmt->setUInt32(1, creature->GetSpawnId());
+            WorldDatabase.Execute(stmt);*/ //Update in DB (cs_nps.cpp)
+            /*if (CreatureTemplate const* cinfo = creature->GetCreatureTemplate())
+                const_cast<CreatureTemplate*>(cinfo)->faction = factionId;*/ //Update in memory (cs_nps.cpp)?
+
+                //todo check command .npc set
 
 enum UniqueGossipOptions : uint32
 {
@@ -55,33 +65,36 @@ enum UniqueSpells : uint32
     SPELL_CURSE_OF_NAZJATAR = 34812,
     SPELL_CURSE_PAIN = 38048,
     SPELL_CURSE_OF_MENDING = 15730,
-    SPELL_BLAZING_SPEED = 31643,
-    SPELL_COLD_SNAP = 11958,
-    SPELL_FOCUS_MAGIC = 54648,
-    SPELL_INCANTERS_ABSORPTION = 44413,
     SPELL_BLIGHT_BOMB = 48212,
-    SPELL_POWER_WORLD_FORTITUDE = 1243,
-    SPELL_INNER_FIRE = 588,
 
-    // Priest
-    SPELL_PRIEST_BLESSED_RECOVERY_R1 = 27813,
-    SPELL_PRIEST_DIVINE_AEGIS = 47753,
-    SPELL_PRIEST_EMPOWERED_RENEW = 63544,
-    SPELL_PRIEST_GLYPH_OF_CIRCLE_OF_HEALING = 55675,
-    SPELL_PRIEST_GLYPH_OF_LIGHTWELL = 55673,
-    SPELL_PRIEST_GLYPH_OF_PRAYER_OF_HEALING_HEAL = 56161,
-    SPELL_PRIEST_GUARDIAN_SPIRIT_HEAL = 48153,
-    SPELL_PRIEST_ITEM_EFFICIENCY = 37595,
+    //GPT  Arachnos the Mindbender
+    //phase 1
+    SPELL_DEFILING_HORROR = 72435,
+    SPELL_ENTANGLING_ROOTS = 339,
+    SPELL_DRAIN_POWER = 44131, //stackable
+    SPELL_SUMMON_DREADBONE_SKELETON = 29066,
+
+    //phase 2
+    SPELL_DESTRUCTIVE_BARRAGE = 48734,
 
     // Balinda
-    SPELL_ARCANE_EXPLOSION = 46608,
-    SPELL_CONE_OF_COLD = 38384,
-    SPELL_FIREBALL = 46988,
-    SPELL_FROSTBOLT = 46987,
-    SPELL_SUMMON_WATER_ELEMENTAL = 45067,
     SPELL_ICEBLOCK = 46604,
 
     SECOND = 1000   // Constant representing one second in milliseconds
+};
+
+enum UniqueEvents
+{
+    //phase 1
+    EVENT_INNER_FIRE = 1,
+    EVENT_DEFILING_HORROR,
+    EVENT_ENTANGLING_ROOTS,
+    EVENT_DRAIN_POWER,
+    EVENT_SUMMON_DREADBONE_SKELETON,
+
+    //phase 2
+    EVENT_DESTRUCTIVE_BARRAGE,
+    EVENT_DESTRUCTIVE_BARRAGE_STOP,
 };
 
 enum UniquePower
@@ -98,23 +111,14 @@ enum UniqueTexts
 
 enum UniqueAction
 {
-    // Balinda
-    ACTION_BUFF_YELL = -30001 // shared from Battleground
+    ACTION_START_FIGHT = -1
 };
 
-enum UniqueEvents
+enum UniquePhases
 {
-    EVENT_INNER_FIRE = 1,
-
-    // Balinda
-    EVENT_ARCANE_EXPLOSION,
-    EVENT_FIREBOLT,
-    EVENT_FROSTBOLT,
-    EVENT_SUMMON_WATER_ELEMENTAL,
-    EVENT_CHECK_RESET,          // Checks if Balinda or the Water Elemental are outside of building.
-
-    // Ambtassa flamelash
-    EVENT_SUMMON_SPIRITS
+    PHASE_INTRO = 1,
+    PHASE_ONE,
+    PHASE_TWO,
 };
 
 class npc_unique : public CreatureScript
@@ -131,167 +135,17 @@ public:
         //!is used to initialize variables when creating a creature
         void Initialize()
         {
+            _SetStartConfigure();
+            _UpdatePowerStats();
             _SetCurses();
-            _WaterElementalGUID.Clear();
             _IsCursesBroken = false;
-            _HasCastIceblock = false;
         }
 
         //!is called every time an agro is removed.
         void Reset() override
         {
             Initialize();
-            _events.Reset();
-            summons.DespawnAll();
-        }
-
-        //!CreatureAI.h
-        void SpellHit(WorldObject* caster, SpellInfo const* spellInfo) override
-        {
-            if (caster->ToCreature() == me)
-                return;
-            if (spellInfo->Id == SPELL_CURSE_OF_NAZJATAR ||
-                spellInfo->Id == SPELL_CURSE_PAIN ||
-                spellInfo->Id == SPELL_CURSE_OF_MENDING)
-            {
-                me->ApplySpellImmune(SPELL_CURSE_OF_NAZJATAR, 0, 162, true);
-                me->ApplySpellImmune(SPELL_CURSE_PAIN, 0, 162, true);
-                me->ApplySpellImmune(SPELL_CURSE_OF_MENDING, 0, 162, true);
-                return;
-            }
-            if (me->GetFaction() == FACTION_FRIENDLY)
-                if (spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_NAZJATAR))
-                    && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_PAIN))
-                    && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_MENDING)))
-                    _IsCursesBroken = true;
-
-            _events.ScheduleEvent(EVENT_INNER_FIRE, 1s);
-        }
-
-        //!CreatureAI.h
-        void ReceiveEmote(Player* player, uint32 emote) override
-        {
-            if (emote == TEXT_EMOTE_FROWN) {
-                me->AddAura(SPELL_BLAZING_SPEED, me);
-            }
-            if (emote == TEXT_EMOTE_GASP) {
-                me->AddAura(SPELL_PRIEST_BLESSED_RECOVERY_R1, me);
-            }
-            if (emote == TEXT_EMOTE_GAZE) {
-                me->AddAura(SPELL_COLD_SNAP, me);
-            }
-            if (emote == TEXT_EMOTE_GIGGLE)
-            {
-                me->AddAura(SPELL_FOCUS_MAGIC, me);
-            }
-            if (emote == TEXT_EMOTE_GROAN)
-            {
-                me->AddAura(SPELL_INCANTERS_ABSORPTION, me);
-            }
-            if (emote == TEXT_EMOTE_GROVEL) {
-                DoCastSelf(SPELL_PRIEST_GUARDIAN_SPIRIT_HEAL, me);
-            }
-            ChatHandler(player->GetSession()).PSendSysMessage("20719");//xdebug
-        }
-
-        //!CreatureAI.h
-        void JustEngagedWith(Unit* who) override
-        {
-            BossAI::JustEngagedWith(who);
-            _events.ScheduleEvent(EVENT_ARCANE_EXPLOSION, 5s, 15s);
-            _events.ScheduleEvent(EVENT_FIREBOLT, 1s);
-            _events.ScheduleEvent(EVENT_SUMMON_SPIRITS, 24s);
-            _events.ScheduleEvent(EVENT_SUMMON_WATER_ELEMENTAL, 3s);
-        }
-
-        //!CreatureAI.h
-        void JustSummoned(Creature* summoned) override
-        {
-            summoned->AI()->AttackStart(SelectTarget(SelectTargetMethod::Random, 0, 50, true));
-            summoned->SetFaction(me->GetFaction());
-            if (NPC_GREATER_WATER_ELEMENTAL == summoned->GetEntry())
-                _WaterElementalGUID = summoned->GetGUID();
-            summons.Summon(summoned);
-        }
-
-        //!CreatureAI.h
-        void SummonedCreatureDespawn(Creature* summoned) override
-        {
-            summons.Despawn(summoned);
-        }
-
-        //!CreatureAI.h
-        void JustDied(Unit* killer)
-        {
-            summons.DespawnAll();
-            killer->SetUnitFlag(UNIT_FLAG_SILENCED);
-            killer->CastSpell(killer, SPELL_BLIGHT_BOMB, false);
-            /*if (!spell)
-            {
-                handler->PSendSysMessage(LANG_COMMAND_NOSPELLFOUND);
-                handler->SetSentErrorMessage(true);
-                return false;
-            }
-            if (!target)
-            {
-                handler->SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
-                handler->SetSentErrorMessage(true);
-                return false;
-            }*/
-        }
-
-        //!ScriptedCreature.h
-        void DoAction(int32 actionId) override
-        {
-            if (actionId == ACTION_BUFF_YELL)
-                Talk(0);
-        }
-
-        bool CheckInRoom() override
-        {
-            if (me->GetDistance2d(me->GetHomePosition().GetPositionX(), me->GetHomePosition().GetPositionY()) > 50)
-            {
-                EnterEvadeMode();
-                Talk(1);
-                return false;
-            }
-            if (Creature* elemental = ObjectAccessor::GetCreature(*me, _WaterElementalGUID))
-                if (elemental->GetDistance2d(me->GetHomePosition().GetPositionX(), me->GetHomePosition().GetPositionY()) > 50)
-                    elemental->AI()->EnterEvadeMode();
-            _events.ScheduleEvent(EVENT_CHECK_RESET, 5s);
-
-            return true;
-        }
-
-        //!UnitAI.h
-        //!Called before damage apply
-        void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType damageType, SpellInfo const* /*spellInfo = nullptr*/) override
-        {
-            /* damage = 0;*/
-            if (me->HealthBelowPctDamaged(40, damage) && !_HasCastIceblock)
-            {
-                DoCast(SPELL_ICEBLOCK);
-                _HasCastIceblock = true;
-            }
-        }
-
-        //!CreatureAI.h
-        void JustReachedHome()
-        {
-            //me->SetStandState(UNIT_STAND_STATE_SLEEP);
-            me->SetHealth(me->GetMaxHealth());
-        }
-
-        //!CreatureAI.h
-        void JustAppeared() override
-        {
-            //_scheduler.Schedule(2s, [this](TaskContext /*task*/)
-            //    {
-            //        DoCastSelf(28874);
-            //    });
-
-            _SetStartConfigure();
-            _UpdatePowerStats();
+            _Reset();
         }
 
         //!CreatureAI.h
@@ -331,17 +185,128 @@ public:
             case GOSSIP_ACTION_INFO_DEF + 6: //
                 CloseGossipMenuFor(player);
                 Talk(SAY_AGGRO, player); //!creature_txt.dbc
-                me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
-                me->SetImmuneToPC(false);
-                me->SetFaction(FACTION_SUPER_ENEMY);
+                DoAction(ACTION_START_FIGHT);
                 break;
             case GOSSIP_ACTION_INFO_DEF + 7:
-                DoAction(ACTION_BUFF_YELL);
                 player->AddItem(ITEM_PROTO_DRAKE_REINS, 1);
                 SendGossipMenuFor(player, NPC_TEXT_UNIQUE_4, me->GetGUID());
                 break;
             }
             return true;
+        }
+
+        void DoAction(int32 action) override
+        {
+            if (action == ACTION_START_FIGHT)
+            {
+                events.SetPhase(PHASE_ONE);
+                me->SetImmuneToPC(false);
+                me->SetFaction(FACTION_SUPER_ENEMY);
+                //DoZoneInCombat();
+
+               /* EntryCheckPredicate pred(NPC_ANTAGONIST);
+                summons.DoAction(ACTION_ANTAGONIST_HOSTILE, pred);*/
+
+                events.ScheduleEvent(SPELL_DRAIN_POWER, 1s);
+            }
+        }
+
+        //!UnitAI.h
+        //!Called before damage apply
+        void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType damageType, SpellInfo const* /*spellInfo = nullptr*/) override
+        {
+            if (me->HealthBelowPctDamaged(50, damage) && events.IsInPhase(PHASE_ONE))
+            {
+                events.CancelEventGroup(1);
+                events.SetPhase(PHASE_TWO);
+                DoCast(SPELL_ICEBLOCK);
+                _PhaseTwoSpellInit();
+            }
+        }
+
+        //!CreatureAI.h
+        void SpellHit(WorldObject* caster, SpellInfo const* spellInfo) override
+        {
+            if (caster->ToCreature() == me)
+                return;
+            if (spellInfo->Id == SPELL_CURSE_OF_NAZJATAR ||
+                spellInfo->Id == SPELL_CURSE_PAIN ||
+                spellInfo->Id == SPELL_CURSE_OF_MENDING)
+            {
+                me->ApplySpellImmune(SPELL_CURSE_OF_NAZJATAR, 0, 162, true);
+                me->ApplySpellImmune(SPELL_CURSE_PAIN, 0, 162, true);
+                me->ApplySpellImmune(SPELL_CURSE_OF_MENDING, 0, 162, true);
+                return;
+            }
+            if (me->GetFaction() == FACTION_FRIENDLY)
+                if (spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_NAZJATAR))
+                    && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_PAIN))
+                    && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_MENDING)))
+                    _IsCursesBroken = true;
+
+            events.ScheduleEvent(EVENT_INNER_FIRE, 1s);
+        }
+
+        //!CreatureAI.h
+        void JustEngagedWith(Unit* who) override
+        {
+            BossAI::JustEngagedWith(who);
+            events.ScheduleEvent(EVENT_DEFILING_HORROR, 5s, 15s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_ENTANGLING_ROOTS, 1s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_DRAIN_POWER, 24s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_SUMMON_DREADBONE_SKELETON, 3s, 1, PHASE_ONE);
+        }
+
+        //!CreatureAI.h
+        void JustSummoned(Creature* summoned) override
+        {
+            BossAI::JustSummoned(summoned);
+            /*summoned->AI()->AttackStart(SelectTarget(SelectTargetMethod::Random, 0, 50, true));
+            summoned->SetFaction(me->GetFaction());*/
+        }
+
+        //!CreatureAI.h
+        void SummonedCreatureDespawn(Creature* summoned) override
+        {
+            BossAI::SummonedCreatureDespawn(summoned);
+            //
+        }
+
+        //!CreatureAI.h
+        void JustDied(Unit* killer)
+        {
+            summons.DespawnAll();
+            killer->CastSpell(killer, SPELL_BLIGHT_BOMB, false);
+            /*if (!spell)
+            {
+                handler->PSendSysMessage(LANG_COMMAND_NOSPELLFOUND);
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (!target)
+            {
+                handler->SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
+                handler->SetSentErrorMessage(true);
+                return false;
+            }*/
+        }
+
+        bool CheckInRoom() override
+        {
+            if (me->GetDistance2d(me->GetHomePosition().GetPositionX(), me->GetHomePosition().GetPositionY()) > 50)
+            {
+                EnterEvadeMode();
+                Talk(1);
+                return false;
+            }
+            return true;
+        }
+
+        //!CreatureAI.h
+        void JustReachedHome()
+        {
+            //me->SetStandState(UNIT_STAND_STATE_SLEEP);
+            me->SetHealth(me->GetMaxHealth());
         }
 
         // Called at World update tick
@@ -350,40 +315,59 @@ public:
             if (!UpdateVictim() || !CheckInRoom())  //!will check to see if the victim has updated
                 return;
 
-            _events.Update(diff);
+            events.Update(diff);
 
             if (me->HasUnitState(UNIT_STATE_CASTING))
                 return;
 
-            while (uint32 eventId = _events.ExecuteEvent())
+            while (uint32 eventId = events.ExecuteEvent())
             {
-                switch (eventId)
+                if (events.IsInPhase(PHASE_ONE))
                 {
-                case EVENT_ARCANE_EXPLOSION:
-                    DoCastVictim(SPELL_ARCANE_EXPLOSION);
-                    _events.ScheduleEvent(EVENT_ARCANE_EXPLOSION, 5s, 15s);
-                    break;
-                case EVENT_FIREBOLT:
-                    DoCastVictim(SPELL_FIREBALL);
-                    _events.ScheduleEvent(EVENT_FIREBOLT, 5s, 9s);
-                    break;
-                case EVENT_INNER_FIRE:
-                    for (size_t i = 0; i < 2; i++)
-                        me->CastSpell(me, SPELL_INNER_FIRE, true);
-                    break;
-                case EVENT_SUMMON_SPIRITS:
-                    if (summons.size() < 5)
-                        for (uint32 i = 0; i < 4; ++i)
-                            DoSpawnCreature(9178, frand(-9, 9), frand(-9, 9), 0, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 60s);
-                    _events.ScheduleEvent(EVENT_SUMMON_SPIRITS, 30s);
-                    break;
-                case EVENT_SUMMON_WATER_ELEMENTAL:
-                    if (summons.size() == 0)
-                        DoCast(SPELL_SUMMON_WATER_ELEMENTAL);
-                    _events.ScheduleEvent(EVENT_SUMMON_WATER_ELEMENTAL, 25s);
-                    break;
-                default:
-                    break;
+                    switch (eventId)
+                    {
+                    case EVENT_DEFILING_HORROR:
+                        DoCastVictim(SPELL_DEFILING_HORROR);
+                        events.ScheduleEvent(EVENT_DEFILING_HORROR, 5s, 15s, 1, PHASE_ONE);
+                        break;
+                    case EVENT_ENTANGLING_ROOTS:
+                        DoCastVictim(SPELL_ENTANGLING_ROOTS);
+                        events.ScheduleEvent(EVENT_ENTANGLING_ROOTS, 5s, 9s, 1, PHASE_ONE);
+                        break;
+                    case EVENT_DRAIN_POWER:
+                        for (size_t i = 0; i < 20; i++)
+                            DoCastVictim(SPELL_DRAIN_POWER);
+                        events.ScheduleEvent(EVENT_DRAIN_POWER, 50s, 90s, 1, PHASE_ONE);
+                        break;
+                    case EVENT_SUMMON_DREADBONE_SKELETON:
+                        if (summons.size() == 0)
+                            for (uint32 i = 0; i < 7; ++i)
+                                DoSpawnCreature(6388, frand(-9, 9), frand(-9, 9), 0, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 60s);
+                        events.ScheduleEvent(EVENT_SUMMON_DREADBONE_SKELETON, 30s, 1, PHASE_ONE);
+                        break;
+                    default:
+                        break;
+                    }
+                }
+
+                if (events.IsInPhase(PHASE_TWO))
+                {
+                    switch (eventId)
+                    {
+                    case EVENT_DESTRUCTIVE_BARRAGE:
+                        me->SetEmoteState(EMOTE_ONESHOT_DANCE);
+                        DoCastVictim(SPELL_DESTRUCTIVE_BARRAGE);    
+                        events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 500ms);
+                        break;
+                    case EVENT_DESTRUCTIVE_BARRAGE_STOP:
+                        DoCastVictim(SPELL_DESTRUCTIVE_BARRAGE);
+                        events.CancelEvent(EVENT_DESTRUCTIVE_BARRAGE);
+                        events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 10s);
+                        events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE_STOP, 18s);
+                        break;
+                    default:
+                        break;
+                    }
                 }
                 if (me->HasUnitState(UNIT_STATE_CASTING))
                     return;
@@ -395,12 +379,8 @@ public:
 
     private:
         std::unordered_map<ObjectGuid /*attackerGUID*/, Milliseconds /*combatTime*/> _combatTimer;
-        bool _zero = urand(0, 100) == 0; // random uint value
-        bool _isJustEnteredCombat = false;
+        bool _zero = urand(0, 100); // random uint value
         TaskScheduler _scheduler;
-        EventMap _events;
-        ObjectGuid _WaterElementalGUID;
-        bool _HasCastIceblock;
         bool _IsCursesBroken;
         //inline static uint8 q = 0;
 
@@ -422,11 +402,11 @@ public:
 
         void _SetStartConfigure()
         {
+            events.SetPhase(PHASE_INTRO);
             me->SetImmuneToPC(true);
             me->SetFaction(FACTION_FRIENDLY);
-            me->SetCreateMana(BASE_MANA);
             me->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
-            me->SetFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_ALLOW_CHEAT_SPELLS); //???
+            me->SetCreateMana(BASE_MANA);
             me->SetFullPower(POWER_MANA);
         }
 
@@ -434,6 +414,12 @@ public:
         {
             me->UpdateAllStats();
             me->UpdateMaxPower(POWER_MANA);
+        }
+
+        void _PhaseTwoSpellInit()
+        {
+            events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 4s);
+            events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE_STOP, 12s);
         }
     };
     CreatureAI* GetAI(Creature* creature) const override
