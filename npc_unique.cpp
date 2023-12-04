@@ -1,4 +1,4 @@
-//h@itmpZL2JiH
+
 #include "ScriptMgr.h"
 #include "Player.h"
 #include "Creature.h"
@@ -13,22 +13,6 @@
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 #include "GridNotifiersImpl.h"
-
-/*std::list<Player*> players;
-Trinity::UnitAuraCheck check(false, 29726);
-Trinity::PlayerListSearcher<Trinity::UnitAuraCheck> searcher(me, players, check);
-Cell::VisitWorldObjects(me, searcher, 10.0f);
-if (!players.empty())ChatHandler(players.front()->GetSession()).PSendSysMessage("spell %i", DoCast(me, 34812, false));//xdebug
-*/
-
-/*WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_UPD_CREATURE_SPAWN_TIME_SECS);
-            stmt->setUInt32(0, spawnTime);
-            stmt->setUInt32(1, creature->GetSpawnId());
-            WorldDatabase.Execute(stmt);*/ //Update in DB (cs_nps.cpp)
-            /*if (CreatureTemplate const* cinfo = creature->GetCreatureTemplate())
-                const_cast<CreatureTemplate*>(cinfo)->faction = factionId;*/ //Update in memory (cs_nps.cpp)?
-
-                //todo check command .npc set
 
 enum UniqueGossipOptions : uint32
 {
