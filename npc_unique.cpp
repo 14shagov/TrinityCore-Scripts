@@ -41,7 +41,7 @@ enum UniqueGossipOptions : uint32
     GOSSIP_OPTION_4 = 3,     // "Shadow"
     GOSSIP_OPTION_5 = 4,     // "Echo"
 
-    FACTION_SUPER_ENEMY = 1620
+    FACTION_SUPER_ENEMY = 54 //1620
 };
 enum UniqueNPC : uint32
 {
@@ -418,9 +418,9 @@ public:
                         events.ScheduleEvent(EVENT_WEB_SPRAY, 34s);
                         break;
                     case EVENT_SUMMON_ETHEREAL_ARACHNIDS:
-                        if (summons.size() < 7)
+                        if (summons.size() < 1)
                             for (uint32 i = 0; i < 4; ++i)
-                                DoSpawnCreature(NPC_SHADOWY_MINION, frand(-9, 9), frand(-9, 9), 1, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 5s); //todo: fix - not all conscripted npc's disappear after 5 sec.
+                                DoSpawnCreature(NPC_SHADOWY_MINION, frand(-9, 9), frand(-9, 9), 1, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 15s); //todo: fix - not all conscripted npc's disappear after 15 sec.
                         events.ScheduleEvent(EVENT_SUMMON_ETHEREAL_ARACHNIDS, 40s, 1, PHASE_ONE);
 
                         ChatHandler(me->GetVictim()->ToPlayer()->GetSession()).PSendSysMessage("EVENT %u", summons.size());//xdebug
@@ -583,4 +583,5 @@ void AddSC_NPCUnique()
 {
     new npc_unique();
     new npc_shadowy_minion();
+    new npc_ethereal_arachnids();
 }
