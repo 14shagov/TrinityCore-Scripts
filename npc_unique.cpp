@@ -1,4 +1,4 @@
-
+//h@itmpZL2JiH
 #include "ScriptMgr.h"
 #include "Player.h"
 #include "Creature.h"
@@ -13,6 +13,17 @@
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 #include "GridNotifiersImpl.h"
+#include "PassiveAI.h"
+#include "InstanceScript.h"
+
+/*std::list<Player*> players;
+Trinity::UnitAuraCheck check(false, 29726);
+Trinity::PlayerListSearcher<Trinity::UnitAuraCheck> searcher(me, players, check);
+Cell::VisitWorldObjects(me, searcher, 10.0f);
+if (!players.empty())ChatHandler(players.front()->GetSession()).PSendSysMessage("spell %i", DoCast(me, 34812, false));//xdebug
+*/
+
+//todo check command .npc set
 
 enum UniqueGossipOptions : uint32
 {
@@ -32,10 +43,11 @@ enum UniqueGossipOptions : uint32
 
     FACTION_SUPER_ENEMY = 1620
 };
-
 enum UniqueNPC : uint32
 {
     NPC_BURNING_SPIRIT = 9178,
+    NPC_ETHEREAL_ARACHNIDS = 90007,
+    NPC_SHADOWY_MINION = 90008,
     NPC_GREATER_WATER_ELEMENTAL = 25040
 };
 
@@ -51,15 +63,24 @@ enum UniqueSpells : uint32
     SPELL_CURSE_OF_MENDING = 15730,
     SPELL_BLIGHT_BOMB = 48212,
 
-    //GPT  Arachnos the Mindbender
     //phase 1
-    SPELL_DEFILING_HORROR = 72435,
-    SPELL_ENTANGLING_ROOTS = 339,
+    SPELL_BLINDING_WEBS = 59365,
+    SPELL_ENVELOPING_WEBS = 24110,
     SPELL_DRAIN_POWER = 44131, //stackable
-    SPELL_SUMMON_DREADBONE_SKELETON = 29066,
+    SPELL_SPIDER_WEB = 28434,
 
     //phase 2
     SPELL_DESTRUCTIVE_BARRAGE = 48734,
+    SPELL_SHOCKWAVE = 25425, //todo !!!
+
+    //phase 3
+    SPELL_BRAIN_LINK = 63802,
+    SPELL_ETHEREAL = 58548,
+    SPELL_DIVINE_HYMN = 64843,
+    SPELL_DEFILING_HORROR = 72435,
+    SPELL_WEB_EXPLOSION = 52491,
+    SPELL_WEB_GRAB = 53406,
+    SPELL_WEB_SPRAY = 29484,
 
     // Balinda
     SPELL_ICEBLOCK = 46604,
@@ -71,14 +92,27 @@ enum UniqueEvents
 {
     //phase 1
     EVENT_INNER_FIRE = 1,
-    EVENT_DEFILING_HORROR,
-    EVENT_ENTANGLING_ROOTS,
+    EVENT_BLINDING_WEBS,
+    EVENT_ENVELOPING_WEBS,
     EVENT_DRAIN_POWER,
-    EVENT_SUMMON_DREADBONE_SKELETON,
+    EVENT_SUMMON_SHADOWY_MINION, 
+    EVENT_SPIDER_WEB,
 
     //phase 2
     EVENT_DESTRUCTIVE_BARRAGE,
     EVENT_DESTRUCTIVE_BARRAGE_STOP,
+    EVENT_SHOCKWAVE, //todo !!!
+    EVENT_BRAIN_LINK, //todo !!!
+
+    //phase 3
+    EVENT_DEFILING_HORROR,
+    EVENT_ETHEREAL,
+    EVENT_ETHEREAL_STOP,
+    EVENT_WEB_EXPLOSION,
+    EVENT_WEB_GRAB,
+    EVENT_WEB_SPRAY,
+    EVENT_SUMMON_ETHEREAL_ARACHNIDS,
+
 };
 
 enum UniquePower
@@ -103,6 +137,7 @@ enum UniquePhases
     PHASE_INTRO = 1,
     PHASE_ONE,
     PHASE_TWO,
+    PHASE_THREE,
 };
 
 class npc_unique : public CreatureScript
@@ -120,7 +155,6 @@ public:
         void Initialize()
         {
             _SetStartConfigure();
-            _UpdatePowerStats();
             _SetCurses();
             _IsCursesBroken = false;
         }
@@ -190,8 +224,6 @@ public:
 
                /* EntryCheckPredicate pred(NPC_ANTAGONIST);
                 summons.DoAction(ACTION_ANTAGONIST_HOSTILE, pred);*/
-
-                events.ScheduleEvent(SPELL_DRAIN_POWER, 1s);
             }
         }
 
@@ -199,13 +231,23 @@ public:
         //!Called before damage apply
         void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType damageType, SpellInfo const* /*spellInfo = nullptr*/) override
         {
-            if (me->HealthBelowPctDamaged(50, damage) && events.IsInPhase(PHASE_ONE))
+            if (me->HealthBelowPctDamaged(66, damage) && events.IsInPhase(PHASE_ONE))
             {
                 events.CancelEventGroup(1);
                 events.SetPhase(PHASE_TWO);
-                DoCast(SPELL_ICEBLOCK);
+                DoCastSelf(SPELL_ICEBLOCK);
                 _PhaseTwoSpellInit();
             }
+            if (me->HealthBelowPctDamaged(33, damage) && events.IsInPhase(PHASE_TWO))
+            {
+                events.CancelEventGroup(2);
+                events.SetPhase(PHASE_THREE);
+                me->AddAura(SPELL_ETHEREAL, me);
+                DoCastSelf(SPELL_DIVINE_HYMN);
+                summons.DespawnAll();
+                _PhaseThreeSpellInit();
+            }
+
         }
 
         //!CreatureAI.h
@@ -213,21 +255,7 @@ public:
         {
             if (caster->ToCreature() == me)
                 return;
-            if (spellInfo->Id == SPELL_CURSE_OF_NAZJATAR ||
-                spellInfo->Id == SPELL_CURSE_PAIN ||
-                spellInfo->Id == SPELL_CURSE_OF_MENDING)
-            {
-                me->ApplySpellImmune(SPELL_CURSE_OF_NAZJATAR, 0, 162, true);
-                me->ApplySpellImmune(SPELL_CURSE_PAIN, 0, 162, true);
-                me->ApplySpellImmune(SPELL_CURSE_OF_MENDING, 0, 162, true);
-                return;
-            }
-            if (me->GetFaction() == FACTION_FRIENDLY)
-                if (spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_NAZJATAR))
-                    && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_PAIN))
-                    && spellInfo->CanDispelAura(sSpellMgr->GetSpellInfo(SPELL_CURSE_OF_MENDING)))
-                    _IsCursesBroken = true;
-
+            //todo immunity to curse
             events.ScheduleEvent(EVENT_INNER_FIRE, 1s);
         }
 
@@ -235,16 +263,14 @@ public:
         void JustEngagedWith(Unit* who) override
         {
             BossAI::JustEngagedWith(who);
-            events.ScheduleEvent(EVENT_DEFILING_HORROR, 5s, 15s, 1, PHASE_ONE);
-            events.ScheduleEvent(EVENT_ENTANGLING_ROOTS, 1s, 1, PHASE_ONE);
-            events.ScheduleEvent(EVENT_DRAIN_POWER, 24s, 1, PHASE_ONE);
-            events.ScheduleEvent(EVENT_SUMMON_DREADBONE_SKELETON, 3s, 1, PHASE_ONE);
+            _PhaseOneSpellInit();
         }
 
         //!CreatureAI.h
         void JustSummoned(Creature* summoned) override
         {
             BossAI::JustSummoned(summoned);
+
             /*summoned->AI()->AttackStart(SelectTarget(SelectTargetMethod::Random, 0, 50, true));
             summoned->SetFaction(me->GetFaction());*/
         }
@@ -253,6 +279,12 @@ public:
         void SummonedCreatureDespawn(Creature* summoned) override
         {
             BossAI::SummonedCreatureDespawn(summoned);
+
+            std::list<Player*> players;
+            Trinity::UnitAuraCheck check(false, 29726);
+            Trinity::PlayerListSearcher<Trinity::UnitAuraCheck> searcher(me, players, check);
+            Cell::VisitWorldObjects(me, searcher, 10.0f);
+            if (!players.empty())ChatHandler(players.front()->GetSession()).PSendSysMessage("Despaw %u", summons.size());//xdebug
             //
         }
 
@@ -286,13 +318,6 @@ public:
             return true;
         }
 
-        //!CreatureAI.h
-        void JustReachedHome()
-        {
-            //me->SetStandState(UNIT_STAND_STATE_SLEEP);
-            me->SetHealth(me->GetMaxHealth());
-        }
-
         // Called at World update tick
         void UpdateAI(uint32 diff) override
         {
@@ -310,25 +335,32 @@ public:
                 {
                     switch (eventId)
                     {
-                    case EVENT_DEFILING_HORROR:
-                        DoCastVictim(SPELL_DEFILING_HORROR);
-                        events.ScheduleEvent(EVENT_DEFILING_HORROR, 5s, 15s, 1, PHASE_ONE);
+                    case EVENT_BLINDING_WEBS:
+                        DoCastVictim(SPELL_BLINDING_WEBS);
+                        events.ScheduleEvent(EVENT_BLINDING_WEBS, 5s, 15s, 1, PHASE_ONE);
                         break;
-                    case EVENT_ENTANGLING_ROOTS:
-                        DoCastVictim(SPELL_ENTANGLING_ROOTS);
-                        events.ScheduleEvent(EVENT_ENTANGLING_ROOTS, 5s, 9s, 1, PHASE_ONE);
+                    case EVENT_ENVELOPING_WEBS:
+                        DoCastVictim(SPELL_ENVELOPING_WEBS);
+                        events.ScheduleEvent(EVENT_ENVELOPING_WEBS, 5s, 9s, 1, PHASE_ONE);
+                        break;
+                    case EVENT_SPIDER_WEB:
+                        DoCastVictim(SPELL_SPIDER_WEB);
+                        events.ScheduleEvent(EVENT_SPIDER_WEB, 50s);
                         break;
                     case EVENT_DRAIN_POWER:
                         for (size_t i = 0; i < 20; i++)
-                            DoCastVictim(SPELL_DRAIN_POWER);
+                            DoCast(SelectTarget(SelectTargetMethod::Random, 0, 50, true), SPELL_DRAIN_POWER); //DoCastVictim(SPELL_DRAIN_POWER);
                         events.ScheduleEvent(EVENT_DRAIN_POWER, 50s, 90s, 1, PHASE_ONE);
                         break;
-                    case EVENT_SUMMON_DREADBONE_SKELETON:
-                        if (summons.size() == 0)
+                    case EVENT_SUMMON_SHADOWY_MINION:
+                        if (summons.size() < 7)
                             for (uint32 i = 0; i < 7; ++i)
-                                DoSpawnCreature(6388, frand(-9, 9), frand(-9, 9), 0, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 60s);
-                        events.ScheduleEvent(EVENT_SUMMON_DREADBONE_SKELETON, 30s, 1, PHASE_ONE);
+                                DoSpawnCreature(NPC_ETHEREAL_ARACHNIDS, frand(-9, 9), frand(-9, 9), 1, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 5s); //todo: fix - not all conscripted npc's disappear after 5 sec.
+                        events.ScheduleEvent(EVENT_SUMMON_SHADOWY_MINION, 40s, 1, PHASE_ONE);
+
+                        ChatHandler(me->GetVictim()->ToPlayer()->GetSession()).PSendSysMessage("EVENT %u", summons.size());//xdebug
                         break;
+
                     default:
                         break;
                     }
@@ -339,15 +371,60 @@ public:
                     switch (eventId)
                     {
                     case EVENT_DESTRUCTIVE_BARRAGE:
-                        me->SetEmoteState(EMOTE_ONESHOT_DANCE);
-                        DoCastVictim(SPELL_DESTRUCTIVE_BARRAGE);    
-                        events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 500ms);
+                        DoCastVictim(SPELL_DESTRUCTIVE_BARRAGE);
+                        events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 500ms, 2, PHASE_TWO);
                         break;
                     case EVENT_DESTRUCTIVE_BARRAGE_STOP:
                         DoCastVictim(SPELL_DESTRUCTIVE_BARRAGE);
-                        events.CancelEvent(EVENT_DESTRUCTIVE_BARRAGE);
-                        events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 10s);
+                        events.CancelEventGroup(2);
+                        events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 10s, 2, PHASE_TWO);
                         events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE_STOP, 18s);
+                        break;
+                        /* case EVENT_BRAIN_LINK:
+                             DoCastAOE(SPELL_BRAIN_LINK, { SPELLVALUE_MAX_TARGETS, 2 });
+                             events.ScheduleEvent(EVENT_BRAIN_LINK, 50s, 0, PHASE_TWO);
+                             break;*/
+                    default:
+                        break;
+                    }
+                }
+
+                if (events.IsInPhase(PHASE_THREE))
+                {
+                    switch (eventId)
+                    {
+                        /*case EVENT_ETHEREAL:
+                            me->AddAura(SPELL_ETHEREAL, me);
+                            events.ScheduleEvent(EVENT_ETHEREAL, 45s);
+                            break;*/
+                    case EVENT_DEFILING_HORROR:
+                        DoCastVictim(SPELL_DEFILING_HORROR);
+                        events.ScheduleEvent(EVENT_DEFILING_HORROR, 5s, 15s, 1, PHASE_ONE);
+                        break;
+                    case EVENT_ETHEREAL_STOP:
+                        me->RemoveAurasDueToSpell(SPELL_ETHEREAL);
+                        events.ScheduleEvent(EVENT_ETHEREAL_STOP, 50s);
+                        break;
+                    case EVENT_WEB_EXPLOSION:
+                        DoCastVictim(SPELL_WEB_EXPLOSION);
+                        events.ScheduleEvent(EVENT_WEB_EXPLOSION, 26s);
+                        break;
+                    case EVENT_WEB_GRAB:
+                        DoCastVictim(SPELL_WEB_GRAB);
+                        events.ScheduleEvent(EVENT_WEB_GRAB, 45s);
+                        break;
+                    case EVENT_WEB_SPRAY:
+                        DoCastVictim(SPELL_WEB_SPRAY);
+                        events.ScheduleEvent(EVENT_WEB_SPRAY, 34s);
+                        break;
+                    case EVENT_SUMMON_ETHEREAL_ARACHNIDS:
+                        if (summons.size() < 7)
+                            for (uint32 i = 0; i < 4; ++i)
+                                DoSpawnCreature(NPC_SHADOWY_MINION, frand(-9, 9), frand(-9, 9), 1, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 5s); //todo: fix - not all conscripted npc's disappear after 5 sec.
+                        events.ScheduleEvent(EVENT_SUMMON_ETHEREAL_ARACHNIDS, 40s, 1, PHASE_ONE);
+
+                        ChatHandler(me->GetVictim()->ToPlayer()->GetSession()).PSendSysMessage("EVENT %u", summons.size());//xdebug
+
                         break;
                     default:
                         break;
@@ -357,7 +434,6 @@ public:
                     return;
             }
             DoMeleeAttackIfReady();
-
             //_scheduler.Update(diff);
         }
 
@@ -390,20 +466,31 @@ public:
             me->SetImmuneToPC(true);
             me->SetFaction(FACTION_FRIENDLY);
             me->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
-            me->SetCreateMana(BASE_MANA);
-            me->SetFullPower(POWER_MANA);
         }
 
-        void _UpdatePowerStats()
+        void _PhaseOneSpellInit()
         {
-            me->UpdateAllStats();
-            me->UpdateMaxPower(POWER_MANA);
+            events.ScheduleEvent(EVENT_SPIDER_WEB, 50s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_BLINDING_WEBS, 5s, 15s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_DRAIN_POWER, 24s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_SUMMON_SHADOWY_MINION, 3s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_ENVELOPING_WEBS, 5s, 9s, 1, PHASE_ONE);
         }
-
         void _PhaseTwoSpellInit()
         {
-            events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 4s);
-            events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE_STOP, 12s);
+            events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 4s, 2, PHASE_TWO);
+            events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE_STOP, 12s, 2, PHASE_TWO);
+            events.ScheduleEvent(EVENT_BRAIN_LINK, 1s, 2s, 0, PHASE_TWO);
+        }
+        void _PhaseThreeSpellInit()
+        {
+            events.ScheduleEvent(EVENT_ETHEREAL_STOP, 8s);
+            events.ScheduleEvent(EVENT_DEFILING_HORROR, 9s);
+            events.ScheduleEvent(EVENT_WEB_EXPLOSION, 5s);
+            events.ScheduleEvent(EVENT_WEB_GRAB, 2s);
+            events.ScheduleEvent(EVENT_WEB_SPRAY, 6s);
+            events.ScheduleEvent(EVENT_SUMMON_ETHEREAL_ARACHNIDS, 3s);
+            //events.ScheduleEvent(EVENT_BRAIN_LINK, 1s, 2s, 0, PHASE_TWO);
         }
     };
     CreatureAI* GetAI(Creature* creature) const override
@@ -412,7 +499,88 @@ public:
     }
 };
 
+
+enum ShadowyMinion
+{
+    SPELL_CONSUMPTION = 28874
+};
+class npc_shadowy_minion : public CreatureScript
+{
+public:
+    npc_shadowy_minion() : CreatureScript("npc_shadowy_minion") {};
+    struct npc_shadowy_minionAI : public PassiveAI
+    {
+        npc_shadowy_minionAI(Creature* creature) : PassiveAI(creature), _instance(creature->GetInstanceScript()) { }
+
+        void InitializeAI() override
+        {
+            //me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE_2);
+            float x, y, z;
+            bool clockwise(urand(0, 1));
+            me->GetPosition(x, y, z);
+            me->GetMotionMaster()->MoveCirclePath(x, y, z, 8, clockwise, 40);
+        }
+
+        void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType damageType, SpellInfo const* /*spellInfo = nullptr*/) override
+        {
+            me->DealDamage(me, attacker, damage);
+        }
+
+        void SpellHit(WorldObject* caster, SpellInfo const* spellInfo) override
+        {
+            if (caster->ToCreature() == me)
+                return;
+            me->CastSpell(caster, spellInfo->Id);
+        }
+
+        void JustAppeared() override
+        {
+            _scheduler.Schedule(2s, [this](TaskContext /*task*/)
+                {
+                    DoCastSelf(SPELL_CONSUMPTION);
+                });
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            _scheduler.Update(diff);
+        }
+
+    private:
+        TaskScheduler _scheduler;
+        InstanceScript* _instance;
+    };
+private:
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_shadowy_minionAI(creature);
+    }
+};
+
+class npc_ethereal_arachnids : public CreatureScript
+{
+public:
+    npc_ethereal_arachnids() : CreatureScript("npc_ethereal_arachnids") {};
+    struct npc_ethereal_arachnidsAI : public AggressorAI
+    {
+        npc_ethereal_arachnidsAI(Creature* creature) : AggressorAI(creature), _instance(creature->GetInstanceScript()) {}
+        void UpdateAI(uint32 diff) override {}
+    private:
+        TaskScheduler _scheduler;
+        InstanceScript* _instance;
+    };
+
+private:
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_ethereal_arachnidsAI(creature);
+    }
+};
+
+
+
 void AddSC_NPCUnique()
 {
     new npc_unique();
+    new npc_shadowy_minion();
 }
