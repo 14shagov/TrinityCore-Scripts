@@ -1,4 +1,3 @@
-//h@itmpZL2JiH
 #include "ScriptMgr.h"
 #include "Player.h"
 #include "Creature.h"
@@ -23,8 +22,6 @@ Cell::VisitWorldObjects(me, searcher, 10.0f);
 if (!players.empty())ChatHandler(players.front()->GetSession()).PSendSysMessage("spell %i", DoCast(me, 34812, false));//xdebug
 */
 
-//todo check command .npc set
-
 enum UniqueGossipOptions : uint32
 {
     MENU_ID_UNIQUE_1 = 60102, // "Your presence here is an anomaly. Speak quickly before my patience wanes."
@@ -46,8 +43,8 @@ enum UniqueGossipOptions : uint32
 enum UniqueNPC : uint32
 {
     NPC_BURNING_SPIRIT = 9178,
-    NPC_ETHEREAL_ARACHNIDS = 90007,
-    NPC_SHADOWY_MINION = 90008,
+    NPC_SHADOWY_MINION = 90007,
+    NPC_ETHEREAL_ARACHNIDS = 90008,
     NPC_GREATER_WATER_ELEMENTAL = 25040
 };
 
@@ -95,7 +92,7 @@ enum UniqueEvents
     EVENT_BLINDING_WEBS,
     EVENT_ENVELOPING_WEBS,
     EVENT_DRAIN_POWER,
-    EVENT_SUMMON_SHADOWY_MINION, 
+    EVENT_SUMMON_SHADOWY_MINION,
     EVENT_SPIDER_WEB,
 
     //phase 2
@@ -112,7 +109,6 @@ enum UniqueEvents
     EVENT_WEB_GRAB,
     EVENT_WEB_SPRAY,
     EVENT_SUMMON_ETHEREAL_ARACHNIDS,
-
 };
 
 enum UniquePower
@@ -247,7 +243,6 @@ public:
                 summons.DespawnAll();
                 _PhaseThreeSpellInit();
             }
-
         }
 
         //!CreatureAI.h
@@ -263,6 +258,7 @@ public:
         void JustEngagedWith(Unit* who) override
         {
             BossAI::JustEngagedWith(who);
+            //_PhaseOneSpellInit();
             _PhaseOneSpellInit();
         }
 
@@ -270,6 +266,7 @@ public:
         void JustSummoned(Creature* summoned) override
         {
             BossAI::JustSummoned(summoned);
+            if (me->GetVictim())ChatHandler(me->GetVictim()->ToUnit()->ToPlayer()->GetSession()).PSendSysMessage("JustSummoned %i", summons.size());//xdebug
 
             /*summoned->AI()->AttackStart(SelectTarget(SelectTargetMethod::Random, 0, 50, true));
             summoned->SetFaction(me->GetFaction());*/
@@ -279,13 +276,7 @@ public:
         void SummonedCreatureDespawn(Creature* summoned) override
         {
             BossAI::SummonedCreatureDespawn(summoned);
-
-            std::list<Player*> players;
-            Trinity::UnitAuraCheck check(false, 29726);
-            Trinity::PlayerListSearcher<Trinity::UnitAuraCheck> searcher(me, players, check);
-            Cell::VisitWorldObjects(me, searcher, 10.0f);
-            if (!players.empty())ChatHandler(players.front()->GetSession()).PSendSysMessage("Despaw %u", summons.size());//xdebug
-            //
+            if (me->GetVictim())ChatHandler(me->GetVictim()->ToUnit()->ToPlayer()->GetSession()).PSendSysMessage("SummonedCreatureDespawn %i", summons.size());//xdebug
         }
 
         //!CreatureAI.h
@@ -293,18 +284,6 @@ public:
         {
             summons.DespawnAll();
             killer->CastSpell(killer, SPELL_BLIGHT_BOMB, false);
-            /*if (!spell)
-            {
-                handler->PSendSysMessage(LANG_COMMAND_NOSPELLFOUND);
-                handler->SetSentErrorMessage(true);
-                return false;
-            }
-            if (!target)
-            {
-                handler->SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
-                handler->SetSentErrorMessage(true);
-                return false;
-            }*/
         }
 
         bool CheckInRoom() override
@@ -355,10 +334,8 @@ public:
                     case EVENT_SUMMON_SHADOWY_MINION:
                         if (summons.size() < 7)
                             for (uint32 i = 0; i < 7; ++i)
-                                DoSpawnCreature(NPC_ETHEREAL_ARACHNIDS, frand(-9, 9), frand(-9, 9), 1, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 5s); //todo: fix - not all conscripted npc's disappear after 5 sec.
+                                DoSpawnCreature(NPC_SHADOWY_MINION, frand(-9, 9), frand(-9, 9), 1, 0, TEMPSUMMON_MANUAL_DESPAWN, 0s);
                         events.ScheduleEvent(EVENT_SUMMON_SHADOWY_MINION, 40s, 1, PHASE_ONE);
-
-                        ChatHandler(me->GetVictim()->ToPlayer()->GetSession()).PSendSysMessage("EVENT %u", summons.size());//xdebug
                         break;
 
                     default:
@@ -372,6 +349,7 @@ public:
                     {
                     case EVENT_DESTRUCTIVE_BARRAGE:
                         DoCastVictim(SPELL_DESTRUCTIVE_BARRAGE);
+                        me->SetFacingTo(me->GetAbsoluteAngle(me->GetVictim()));
                         events.ScheduleEvent(EVENT_DESTRUCTIVE_BARRAGE, 500ms, 2, PHASE_TWO);
                         break;
                     case EVENT_DESTRUCTIVE_BARRAGE_STOP:
@@ -418,13 +396,10 @@ public:
                         events.ScheduleEvent(EVENT_WEB_SPRAY, 34s);
                         break;
                     case EVENT_SUMMON_ETHEREAL_ARACHNIDS:
-                        if (summons.size() < 1)
+                        if (summons.size() <= 1)
                             for (uint32 i = 0; i < 4; ++i)
-                                DoSpawnCreature(NPC_SHADOWY_MINION, frand(-9, 9), frand(-9, 9), 1, 0, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 15s); //todo: fix - not all conscripted npc's disappear after 15 sec.
-                        events.ScheduleEvent(EVENT_SUMMON_ETHEREAL_ARACHNIDS, 40s, 1, PHASE_ONE);
-
-                        ChatHandler(me->GetVictim()->ToPlayer()->GetSession()).PSendSysMessage("EVENT %u", summons.size());//xdebug
-
+                                DoSpawnCreature(NPC_ETHEREAL_ARACHNIDS, frand(-9, 9), frand(-9, 9), 1, 0, TEMPSUMMON_CORPSE_DESPAWN, 0s);
+                        events.ScheduleEvent(EVENT_SUMMON_ETHEREAL_ARACHNIDS, 40s);
                         break;
                     default:
                         break;
@@ -438,8 +413,6 @@ public:
         }
 
     private:
-        std::unordered_map<ObjectGuid /*attackerGUID*/, Milliseconds /*combatTime*/> _combatTimer;
-        bool _zero = urand(0, 100); // random uint value
         TaskScheduler _scheduler;
         bool _IsCursesBroken;
         //inline static uint8 q = 0;
@@ -470,11 +443,11 @@ public:
 
         void _PhaseOneSpellInit()
         {
-            events.ScheduleEvent(EVENT_SPIDER_WEB, 50s, 1, PHASE_ONE);
-            events.ScheduleEvent(EVENT_BLINDING_WEBS, 5s, 15s, 1, PHASE_ONE);
-            events.ScheduleEvent(EVENT_DRAIN_POWER, 24s, 1, PHASE_ONE);
-            events.ScheduleEvent(EVENT_SUMMON_SHADOWY_MINION, 3s, 1, PHASE_ONE);
-            events.ScheduleEvent(EVENT_ENVELOPING_WEBS, 5s, 9s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_SPIDER_WEB, 5000s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_BLINDING_WEBS, 5000s, 15000s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_DRAIN_POWER, 2400s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_SUMMON_SHADOWY_MINION, 1s, 1, PHASE_ONE);
+            events.ScheduleEvent(EVENT_ENVELOPING_WEBS, 5000s, 9000s, 1, PHASE_ONE);
         }
         void _PhaseTwoSpellInit()
         {
@@ -499,7 +472,6 @@ public:
     }
 };
 
-
 enum ShadowyMinion
 {
     SPELL_CONSUMPTION = 28874
@@ -515,10 +487,8 @@ public:
         void InitializeAI() override
         {
             //me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE_2);
-            float x, y, z;
-            bool clockwise(urand(0, 1));
-            me->GetPosition(x, y, z);
-            me->GetMotionMaster()->MoveCirclePath(x, y, z, 8, clockwise, 40);
+            me->DespawnOrUnsummon(15s);
+            _SetCirclePath();
         }
 
         void DamageTaken(Unit* attacker, uint32& damage, DamageEffectType damageType, SpellInfo const* /*spellInfo = nullptr*/) override
@@ -531,13 +501,18 @@ public:
             if (caster->ToCreature() == me)
                 return;
             me->CastSpell(caster, spellInfo->Id);
+            _SetCirclePath();
         }
 
         void JustAppeared() override
         {
-            _scheduler.Schedule(2s, [this](TaskContext /*task*/)
+            _scheduler
+                .Schedule(2s, [this](TaskContext /*task*/)
                 {
                     DoCastSelf(SPELL_CONSUMPTION);
+                })
+                .Schedule(15s, [this](TaskContext /*task*/)
+                {
                 });
         }
 
@@ -549,6 +524,13 @@ public:
     private:
         TaskScheduler _scheduler;
         InstanceScript* _instance;
+        void _SetCirclePath()
+        {
+            float x, y, z;
+            bool clockwise(urand(0, 1));
+            me->GetPosition(x, y, z);
+            me->GetMotionMaster()->MoveCirclePath(x, y, z, 8, clockwise, 40);
+        }
     };
 private:
     CreatureAI* GetAI(Creature* creature) const override
@@ -561,12 +543,22 @@ class npc_ethereal_arachnids : public CreatureScript
 {
 public:
     npc_ethereal_arachnids() : CreatureScript("npc_ethereal_arachnids") {};
-    struct npc_ethereal_arachnidsAI : public AggressorAI
+    struct npc_ethereal_arachnidsAI : public ScriptedAI
     {
-        npc_ethereal_arachnidsAI(Creature* creature) : AggressorAI(creature), _instance(creature->GetInstanceScript()) {}
-        void UpdateAI(uint32 diff) override {}
+        npc_ethereal_arachnidsAI(Creature* creature) : ScriptedAI(creature), _instance(creature->GetInstanceScript()) {}
+
+        void InitializeAI() override
+        {
+            me->AI()->AttackStart(SelectTarget(SelectTargetMethod::Random, 0, 50, true));
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (!UpdateVictim())
+                return;
+            DoMeleeAttackIfReady();
+        }
     private:
-        TaskScheduler _scheduler;
         InstanceScript* _instance;
     };
 
@@ -576,8 +568,6 @@ private:
         return new npc_ethereal_arachnidsAI(creature);
     }
 };
-
-
 
 void AddSC_NPCUnique()
 {
